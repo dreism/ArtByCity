@@ -1,0 +1,16 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[[services]]
+name = "artbycity"
+
+[services.variables]
+CACHE_DIR = "/tmp/artbycity-cache"
+DISABLE_PUPPETEER = "false"
+MAX_PUPPETEER_INSTANCES = "1"
+NODE_ENV = "production"

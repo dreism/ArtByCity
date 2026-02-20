@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: artbycity
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CACHE_DIR
+        value: /tmp/artbycity-cache
+      - key: DISABLE_PUPPETEER
+        value: "false"
+      - key: MAX_PUPPETEER_INSTANCES
+        value: "1"
