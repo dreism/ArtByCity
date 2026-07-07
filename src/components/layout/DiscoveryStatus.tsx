@@ -1,19 +1,18 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { JobStatus } from '@/types/api';
+import { Gallery } from '@/types/gallery';
 
 interface Props {
   city: string;
   country: string;
   countryCode: string;
+  onGalleries: (galleries: Gallery[]) => void;
 }
 
-export function DiscoveryStatus({ city, country, countryCode }: Props) {
-  const router = useRouter();
-  const [status, setStatus] = useState<JobStatus | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
+export function DiscoveryStatus({ city, country, countryCode, onGalleries }: Props) {
+  const [discovering, setDiscovering] = useState(true);
+  const [message, setMessage] = useState(`Searching for galleries in ${city}...`);
   const [error, setError] = useState<string | null>(null);
 
   const startDiscovery = useCallback(async () => {
@@ -25,48 +24,23 @@ export function DiscoveryStatus({ city, country, countryCode }: Props) {
       });
       const data = await res.json();
 
-      if (data.status === 'cached') {
-        router.refresh();
-        return;
-      }
-
-      if (data.jobId) {
-        setJobId(data.jobId);
+      if (data.status === 'cached' && data.galleries) {
+        onGalleries(data.galleries);
+      } else if (data.error) {
+        setError(data.error);
       } else {
-        setError(data.error || 'Discovery failed');
+        setError('Discovery failed');
       }
-    } catch (err) {
+    } catch {
       setError('Failed to start gallery discovery');
+    } finally {
+      setDiscovering(false);
     }
-  }, [city, country, countryCode, router]);
+  }, [city, country, countryCode, onGalleries]);
 
   useEffect(() => {
     startDiscovery();
   }, [startDiscovery]);
-
-  useEffect(() => {
-    if (!jobId) return;
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/status/${jobId}`);
-        const data: JobStatus = await res.json();
-        setStatus(data);
-
-        if (data.status === 'done') {
-          router.refresh();
-        } else if (data.status === 'error') {
-          setError(data.error || 'Discovery failed');
-        }
-      } catch {
-        // keep polling
-      }
-    };
-
-    const interval = setInterval(poll, 2000);
-    poll(); // immediate first poll
-    return () => clearInterval(interval);
-  }, [jobId, router]);
 
   if (error) {
     return (
@@ -79,9 +53,7 @@ export function DiscoveryStatus({ city, country, countryCode }: Props) {
     );
   }
 
-  if (!status || status.status === 'done') return null;
-
-  const percent = status.total > 0 ? Math.round((status.progress / status.total) * 100) : 0;
+  if (!discovering) return null;
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white border border-zinc-200 px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 z-50 max-w-sm w-full">
@@ -92,12 +64,9 @@ export function DiscoveryStatus({ city, country, countryCode }: Props) {
         </svg>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-zinc-700 truncate">{status.message}</p>
+        <p className="text-sm text-zinc-700 truncate">{message}</p>
         <div className="mt-1 h-1 bg-zinc-100 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-zinc-900 rounded-full transition-all duration-500"
-            style={{ width: `${percent}%` }}
-          />
+          <div className="h-full bg-zinc-900 rounded-full animate-pulse" style={{ width: '40%' }} />
         </div>
       </div>
     </div>

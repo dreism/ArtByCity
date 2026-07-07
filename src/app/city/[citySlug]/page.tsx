@@ -1,7 +1,6 @@
 import { readCache, isCacheValid, TTL } from '@/lib/cache/fileCache';
 import { Gallery } from '@/types/gallery';
-import { GalleryGrid } from '@/components/gallery/GalleryGrid';
-import { DiscoveryStatus } from '@/components/layout/DiscoveryStatus';
+import { CityClientWrapper } from '@/components/layout/CityClientWrapper';
 import Link from 'next/link';
 
 interface Props {
@@ -23,7 +22,6 @@ export default function CityPage({ params, searchParams }: Props) {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-2 text-sm text-zinc-400 mb-3">
           <Link href="/" className="hover:text-zinc-700 transition-colors">Home</Link>
@@ -41,23 +39,13 @@ export default function CityPage({ params, searchParams }: Props) {
         )}
       </div>
 
-      {/* Discovery status — shown when cache is cold */}
-      {needsDiscovery && (
-        <DiscoveryStatus city={city} country={country} countryCode={countryCode} />
-      )}
-
-      {/* Gallery grid */}
-      <GalleryGrid galleries={galleries} />
-
-      {/* Empty state when discovery is running */}
-      {galleries.length === 0 && !needsDiscovery && (
-        <div className="text-center py-20">
-          <p className="text-zinc-400">No galleries found for {city}.</p>
-          <Link href="/" className="mt-4 inline-block text-sm text-zinc-600 underline">
-            Try another city
-          </Link>
-        </div>
-      )}
+      <CityClientWrapper
+        initialGalleries={galleries}
+        needsDiscovery={needsDiscovery}
+        city={city}
+        country={country}
+        countryCode={countryCode}
+      />
     </div>
   );
 }
