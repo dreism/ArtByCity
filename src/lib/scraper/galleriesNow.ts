@@ -43,6 +43,13 @@ export async function scrapeGalleriesNow(city: string, country: string): Promise
   return galleries.slice(0, 20);
 }
 
+// Navigation labels and headings that the loose selectors pick up as "names"
+const GENERIC_NAME = /^(exhibitions?|galleries|gallery|home|menu|about|contact|search|more|view all|all|events?|news|art|artists?|museums?|current|upcoming|past|map|cities|london|new york|paris|berlin|hong kong|los angeles)$/i;
+
+function isRealGalleryName(name: string): boolean {
+  return name.length >= 3 && name.length <= 80 && !GENERIC_NAME.test(name.trim());
+}
+
 function parseGalleriesNowPage($: cheerio.CheerioAPI, city: string, country: string): Gallery[] {
   const galleries: Gallery[] = [];
   const seen = new Set<string>();
@@ -69,7 +76,7 @@ function parseGalleriesNowPage($: cheerio.CheerioAPI, city: string, country: str
     $('a[href*="/gallery/"], a[href*="/exhibition/"]').each((_, el) => {
       const href = $(el).attr('href') || '';
       const text = $(el).text().trim();
-      if (text && href && !seen.has(text.toLowerCase())) {
+      if (text && href && isRealGalleryName(text) && !seen.has(text.toLowerCase())) {
         seen.add(text.toLowerCase());
         const fullUrl = href.startsWith('http') ? href : `${BASE_URL}${href}`;
         galleries.push(makeBasicGallery(text, fullUrl, city, country));
@@ -84,7 +91,7 @@ function parseGalleriesNowPage($: cheerio.CheerioAPI, city: string, country: str
     // Extract gallery name
     const nameEl = $el.find('h2, h3, h4, .gallery-name, [class*="gallery-name"], [class*="title"]').first();
     const name = nameEl.text().trim() || $el.find('a').first().text().trim();
-    if (!name || seen.has(name.toLowerCase())) return;
+    if (!name || !isRealGalleryName(name) || seen.has(name.toLowerCase())) return;
     seen.add(name.toLowerCase());
 
     // Extract exhibition info

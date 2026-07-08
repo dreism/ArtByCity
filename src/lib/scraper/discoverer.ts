@@ -14,28 +14,26 @@ import { duckduckgoSearchGalleries } from './duckduckgo';
  * art cities), DuckDuckGo (last resort when a city comes back nearly empty).
  */
 export async function discoverGalleries(city: string, country: string): Promise<Gallery[]> {
-  const [osm, wikidata, galleriesNow] = await Promise.allSettled([
+  const [osm, wikidata, galleriesNow, ddg] = await Promise.allSettled([
     searchGalleriesOSM(city, country),
     searchGalleriesByCity(city, country),
     scrapeGalleriesNow(city, country),
+    duckduckgoSearchGalleries(city, country),
   ]);
 
   const merged = new Merger();
   // Order matters: earlier sources win field conflicts. Wikidata first for
-  // clean names/photos, GalleriesNow next for exhibitions, OSM last for bulk.
+  // clean names/photos, GalleriesNow next for exhibitions, OSM for bulk
+  // coverage, DuckDuckGo last — it catches live-web galleries missing from
+  // all structured sources.
   merged.add(settled(wikidata, 'wikidata'));
   merged.add(settled(galleriesNow, 'galleriesnow'));
   merged.add(settled(osm, 'osm'));
-
-  if (merged.size < 5) {
-    try {
-      merged.add(await duckduckgoSearchGalleries(city, country));
-    } catch { /* best-effort */ }
-  }
+  merged.add(settled(ddg, 'duckduckgo'));
 
   const ranked = merged.list().sort((a, b) => score(b) - score(a)).slice(0, 20);
   console.log('[discoverer]', city, '→', ranked.length, 'galleries',
-    `(wikidata:${count(wikidata)} gn:${count(galleriesNow)} osm:${count(osm)})`);
+    `(wikidata:${count(wikidata)} gn:${count(galleriesNow)} osm:${count(osm)} ddg:${count(ddg)})`);
   return ranked;
 }
 

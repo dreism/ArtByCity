@@ -39,18 +39,27 @@ export function writeCachedImage(hash: string, buffer: Buffer): void {
 
 export async function fetchImageBuffer(url: string, referer?: string): Promise<Buffer | null> {
   try {
+    // Wikimedia policy blocks generic browser UAs from cloud IPs but welcomes
+    // descriptive ones; gallery sites are the opposite (block bots, allow
+    // browsers)
+    const isWikimedia = /(^|\.)(wikimedia|wikipedia)\.org$/.test(new URL(url).hostname);
+    const userAgent = isWikimedia
+      ? 'ArtByCity/2.0 (art gallery discovery app)'
+      : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
     const response = await axios.get(url, {
       responseType: 'arraybuffer',
       timeout: 10000,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': userAgent,
         'Referer': referer || new URL(url).origin,
         'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
       },
-      maxRedirects: 3,
+      maxRedirects: 5,
     });
     return Buffer.from(response.data);
-  } catch {
+  } catch (err) {
+    console.error('[imageCache] fetch failed', url, (err as Error).message);
     return null;
   }
 }

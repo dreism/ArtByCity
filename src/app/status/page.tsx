@@ -2,6 +2,7 @@ import { geocodeCity, searchGalleriesOSM } from '@/lib/osm/overpass';
 import { resolveCityQid, searchGalleriesByCity } from '@/lib/wikidata/galleries';
 import { scrapeGalleriesNow } from '@/lib/scraper/galleriesNow';
 import { scrapeGalleryExhibitions } from '@/lib/scraper/exhibitionScraper';
+import { duckduckgoSearchGalleries } from '@/lib/scraper/duckduckgo';
 import { fetchImageBuffer } from '@/lib/cache/imageCache';
 
 export const dynamic = 'force-dynamic';
@@ -58,6 +59,13 @@ export default async function StatusPage() {
       return `${galleries.length} galleries${galleries[0] ? `. First: ${galleries[0].name}` : ' (0 is tolerable — supplemental source)'}`;
     }),
 
+    runCheck('DuckDuckGo web search (Sydney)', async () => {
+      const galleries = await duckduckgoSearchGalleries('Sydney', 'Australia');
+      if (galleries.length === 0) throw new Error('0 results — likely blocked from this IP');
+      const stanley = galleries.find(g => /stanley/i.test(g.name) || /stanley/i.test(g.website));
+      return `${galleries.length} galleries. Stanley Street Gallery: ${stanley ? 'FOUND ✓' : 'not found'}. Sample: ${galleries.slice(0, 4).map(g => g.name).join(' · ')}`;
+    }),
+
     runCheck('Sample gallery site scrape (David Zwirner)', async () => {
       const exhibitions = await scrapeGalleryExhibitions('https://www.davidzwirner.com');
       const artists = exhibitions.reduce((n, e) => n + e.artists.length, 0);
@@ -67,7 +75,7 @@ export default async function StatusPage() {
 
     runCheck('Wikimedia Commons image fetch', async () => {
       const buf = await fetchImageBuffer(
-        'https://commons.wikimedia.org/wiki/Special:FilePath/Museum_Island_Berlin_July_2009.jpg?width=200'
+        'https://commons.wikimedia.org/wiki/Special:FilePath/Tour_Eiffel_Wikimedia_Commons.jpg?width=200'
       );
       if (!buf || buf.length < 1000) throw new Error(`only ${buf?.length ?? 0} bytes`);
       return `${(buf.length / 1024).toFixed(0)} KB fetched`;

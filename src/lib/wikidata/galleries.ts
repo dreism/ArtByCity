@@ -50,11 +50,17 @@ export async function searchGalleriesByCity(city: string, country: string): Prom
   }
   console.log('[wikidata]', city, '→', qid);
 
+  // Bounded 1-or-2-hop location match. An unbounded wdt:P131* path forces the
+  // engine to path-check every gallery on Earth and times out at ~30s; with a
+  // bound city on the object side these UNION branches evaluate backwards
+  // from the city and return in 1-3s.
   const query = `
 SELECT DISTINCT ?item ?itemLabel ?desc ?website ?image ?sitelinks WHERE {
   VALUES ?type { wd:Q1007870 wd:Q207694 }
   ?item wdt:P31 ?type .
-  ?item wdt:P131* wd:${qid} .
+  { ?item wdt:P131 wd:${qid} . }
+  UNION
+  { ?item wdt:P131 ?district . ?district wdt:P131 wd:${qid} . }
   ?item wikibase:sitelinks ?sitelinks .
   OPTIONAL { ?item wdt:P856 ?website . }
   OPTIONAL { ?item wdt:P18 ?image . }
