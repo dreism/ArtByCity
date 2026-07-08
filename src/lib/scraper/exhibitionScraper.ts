@@ -44,7 +44,7 @@ async function tryExhibitionSubpages(baseUrl: string, mainHtml: string): Promise
   // Find links to exhibition pages in the main page HTML
   const exhibitionUrls = findExhibitionLinks(mainHtml, baseUrl);
 
-  for (const url of exhibitionUrls.slice(0, 3)) {
+  for (const url of exhibitionUrls.slice(0, 2)) {
     try {
       const html = await fetchHtml(url);
       if (!html) continue;
@@ -88,7 +88,7 @@ async function fetchHtml(url: string): Promise<string | null> {
     await rateLimitedFetch(getDomain(url));
     const response = await axios.get(url, {
       headers: FETCH_HEADERS,
-      timeout: 12000,
+      timeout: 8000,
       maxRedirects: 3,
     });
     return response.data as string;

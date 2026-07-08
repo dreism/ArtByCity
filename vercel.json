@@ -1,10 +1,5 @@
 {
   "env": {
     "DISABLE_PUPPETEER": "true"
-  },
-  "functions": {
-    "src/app/api/discover/route.ts": {
-      "maxDuration": 60
-    }
   }
 }

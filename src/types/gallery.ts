@@ -36,7 +36,9 @@ export interface Gallery {
   description?: string;
   coverImageUrl?: string;
   address?: string;
-  source: 'wikidata' | 'galleriesnow' | 'bing' | 'web';
+  source: 'wikidata' | 'galleriesnow' | 'osm' | 'duckduckgo' | 'web';
+  /** Wikipedia sitelink count — notability signal used for ranking */
+  sitelinks?: number;
   exhibitions: Exhibition[];
   scrapedAt: string;
 }

@@ -1,79 +1,126 @@
 import { Gallery } from '@/types/gallery';
 import { searchGalleriesByCity } from '@/lib/wikidata/galleries';
+import { searchGalleriesOSM } from '@/lib/osm/overpass';
 import { scrapeGalleriesNow } from './galleriesNow';
-import { bingSearchGalleries } from './bingSearch';
+import { duckduckgoSearchGalleries } from './duckduckgo';
 
-export interface DiscoveryProgress {
-  galleries: Gallery[];
-  progress: number;
-  total: number;
-  message: string;
+/**
+ * Discover the top ~20 galleries in a city. All sources run in parallel and
+ * every source is allowed to fail — wall time is bounded by the slowest
+ * individual source timeout (~25s), well inside the 60s function limit.
+ *
+ * Sources: OSM Overpass (coverage incl. small commercial galleries),
+ * Wikidata (notability ranking + photos), GalleriesNow (exhibitions for major
+ * art cities), DuckDuckGo (last resort when a city comes back nearly empty).
+ */
+export async function discoverGalleries(city: string, country: string): Promise<Gallery[]> {
+  const [osm, wikidata, galleriesNow] = await Promise.allSettled([
+    searchGalleriesOSM(city, country),
+    searchGalleriesByCity(city, country),
+    scrapeGalleriesNow(city, country),
+  ]);
+
+  const merged = new Merger();
+  // Order matters: earlier sources win field conflicts. Wikidata first for
+  // clean names/photos, GalleriesNow next for exhibitions, OSM last for bulk.
+  merged.add(settled(wikidata, 'wikidata'));
+  merged.add(settled(galleriesNow, 'galleriesnow'));
+  merged.add(settled(osm, 'osm'));
+
+  if (merged.size < 5) {
+    try {
+      merged.add(await duckduckgoSearchGalleries(city, country));
+    } catch { /* best-effort */ }
+  }
+
+  const ranked = merged.list().sort((a, b) => score(b) - score(a)).slice(0, 20);
+  console.log('[discoverer]', city, '→', ranked.length, 'galleries',
+    `(wikidata:${count(wikidata)} gn:${count(galleriesNow)} osm:${count(osm)})`);
+  return ranked;
 }
 
-export async function discoverGalleries(
-  city: string,
-  country: string,
-  onProgress?: (p: DiscoveryProgress) => void
-): Promise<Gallery[]> {
-  const allGalleries: Gallery[] = [];
-  const seenDomains = new Set<string>();
-  const seenNames = new Set<string>();
+function score(g: Gallery): number {
+  return (
+    (g.sitelinks ?? 0) * 10 +
+    (g.website ? 5 : 0) +
+    (g.exhibitions.length > 0 ? 8 : 0) +
+    (g.coverImageUrl ? 2 : 0)
+  );
+}
 
-  function addGalleries(incoming: Gallery[]) {
+function settled(result: PromiseSettledResult<Gallery[]>, label: string): Gallery[] {
+  if (result.status === 'fulfilled') return result.value;
+  console.error(`[discoverer] ${label} failed:`, result.reason?.message || result.reason);
+  return [];
+}
+
+function count(result: PromiseSettledResult<Gallery[]>): number {
+  return result.status === 'fulfilled' ? result.value.length : -1;
+}
+
+/** Dedupes by normalized name and website domain, merging fields on match. */
+class Merger {
+  private galleries: Gallery[] = [];
+  private byName = new Map<string, Gallery>();
+  private byDomain = new Map<string, Gallery>();
+
+  get size() {
+    return this.galleries.length;
+  }
+
+  list(): Gallery[] {
+    return this.galleries;
+  }
+
+  add(incoming: Gallery[]) {
     for (const g of incoming) {
-      const nameKey = g.name.toLowerCase().trim();
-      const domainKey = g.website ? extractDomain(g.website) : null;
+      const nameKey = normalizeName(g.name);
+      const domainKey = extractDomain(g.website);
 
-      if (seenNames.has(nameKey)) continue;
-      if (domainKey && seenDomains.has(domainKey)) continue;
+      const existing = this.byName.get(nameKey) || (domainKey ? this.byDomain.get(domainKey) : undefined);
+      if (existing) {
+        mergeInto(existing, g);
+        if (domainKey && !this.byDomain.has(domainKey)) this.byDomain.set(domainKey, existing);
+        this.byName.set(nameKey, existing);
+        continue;
+      }
 
-      seenNames.add(nameKey);
-      if (domainKey) seenDomains.add(domainKey);
-      allGalleries.push(g);
+      this.galleries.push(g);
+      this.byName.set(nameKey, g);
+      if (domainKey) this.byDomain.set(domainKey, g);
     }
   }
+}
 
-  // Tier 1: Wikidata SPARQL
-  onProgress?.({ galleries: [], progress: 0, total: 3, message: `Searching Wikidata for galleries in ${city}...` });
-  try {
-    const wikidataGalleries = await searchGalleriesByCity(city, country);
-    addGalleries(wikidataGalleries);
-    onProgress?.({ galleries: allGalleries, progress: 1, total: 3, message: `Found ${allGalleries.length} galleries via Wikidata...` });
-  } catch (err) {
-    console.error('[discoverer] Wikidata failed', err);
+function mergeInto(target: Gallery, extra: Gallery) {
+  if (!target.website && extra.website) target.website = extra.website;
+  if (!target.coverImageUrl && extra.coverImageUrl) target.coverImageUrl = extra.coverImageUrl;
+  if (!target.description && extra.description) target.description = extra.description;
+  if (!target.address && extra.address) target.address = extra.address;
+  if ((target.sitelinks ?? 0) < (extra.sitelinks ?? 0)) target.sitelinks = extra.sitelinks;
+  if (target.exhibitions.length === 0 && extra.exhibitions.length > 0) {
+    target.exhibitions = extra.exhibitions;
   }
+}
 
-  // Tier 2: GalleriesNow.net
-  onProgress?.({ galleries: allGalleries, progress: 1, total: 3, message: `Scraping GalleriesNow for ${city} exhibitions...` });
-  try {
-    const gnGalleries = await scrapeGalleriesNow(city, country);
-    addGalleries(gnGalleries);
-    onProgress?.({ galleries: allGalleries, progress: 2, total: 3, message: `Found ${allGalleries.length} galleries total...` });
-  } catch (err) {
-    console.error('[discoverer] GalleriesNow failed', err);
-  }
-
-  // Tier 3: Bing fallback if we don't have enough
-  if (allGalleries.length < 8) {
-    onProgress?.({ galleries: allGalleries, progress: 2, total: 3, message: `Searching web for more ${city} galleries...` });
-    try {
-      const bingGalleries = await bingSearchGalleries(city, country);
-      addGalleries(bingGalleries);
-    } catch (err) {
-      console.error('[discoverer] Bing search failed', err);
-    }
-  }
-
-  const final = allGalleries.slice(0, 20);
-  onProgress?.({ galleries: final, progress: 3, total: 3, message: `Discovery complete: ${final.length} galleries found` });
-
-  return final;
+function normalizeName(name: string): string {
+  const base = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const stripped = base
+    .replace(/\b(the|art|gallery|galerie|museum)\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+  // Names made up entirely of stopwords ("The Art Gallery") would all collapse
+  // to the same empty key \u2014 fall back to the unstripped form
+  return stripped || base.replace(/[^a-z0-9]/g, '');
 }
 
 function extractDomain(url: string): string {
+  if (!url) return '';
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
-    return url;
+    return '';
   }
 }

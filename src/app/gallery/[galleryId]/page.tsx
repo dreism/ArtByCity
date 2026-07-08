@@ -1,82 +1,108 @@
-import { readCache, isCacheValid, TTL } from '@/lib/cache/fileCache';
-import { Gallery } from '@/types/gallery';
+'use client';
+
+import { Suspense, useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { Gallery, Exhibition } from '@/types/gallery';
+import { ExhibitionsResponse } from '@/types/api';
 import { GalleryProfile } from '@/components/gallery/GalleryProfile';
 import { ExhibitionList } from '@/components/gallery/ExhibitionList';
 import { ArtworkMasonry } from '@/components/gallery/ArtworkMasonry';
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import fs from 'fs';
-import path from 'path';
 
-interface Props {
-  params: { galleryId: string };
+// Stateless on serverless: gallery info arrives via query params from the
+// card link; exhibitions are fetched client-side from the CDN-cached endpoint.
+export default function GalleryPage() {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <GalleryPageInner />
+    </Suspense>
+  );
 }
 
-async function getGallery(galleryId: string): Promise<Gallery | null> {
-  // Check gallery-specific cache
-  const cacheKey = `galleries/${galleryId}`;
-  if (isCacheValid(cacheKey, TTL.EXHIBITIONS)) {
-    const cached = readCache<Gallery>(cacheKey);
-    if (cached) return cached;
+function GalleryPageInner() {
+  const { galleryId } = useParams<{ galleryId: string }>();
+  const sp = useSearchParams();
+
+  const name = sp.get('name') || '';
+  const website = sp.get('website') || '';
+  const city = sp.get('city') || '';
+  const country = sp.get('country') || '';
+  const img = sp.get('img') || '';
+  const desc = sp.get('desc') || '';
+
+  const [exhibitions, setExhibitions] = useState<Exhibition[]>([]);
+  const [loading, setLoading] = useState(Boolean(website));
+
+  useEffect(() => {
+    if (!website) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const qs = new URLSearchParams({ website, galleryId: galleryId || '' });
+        const res = await fetch(`/api/exhibitions?${qs}`);
+        const data: ExhibitionsResponse = await res.json();
+        if (!cancelled) setExhibitions(data.exhibitions || []);
+      } catch {
+        // leave empty — website link is still shown
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [website, galleryId]);
+
+  if (!name) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-20 text-center">
+        <p className="text-zinc-400">Gallery not found.</p>
+        <Link href="/" className="mt-4 inline-block text-sm text-zinc-600 underline">
+          Back to search
+        </Link>
+      </div>
+    );
   }
 
-  // Trigger server-side scrape by calling our own API
-  const apiBase = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  try {
-    const res = await fetch(`${apiBase}/api/gallery/${galleryId}`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    return await res.json() as Gallery;
-  } catch {
-    // Fallback: search in city caches
-    return findGalleryInCityCache(galleryId);
-  }
-}
+  const gallery: Gallery = {
+    id: galleryId || '',
+    name,
+    city,
+    country,
+    website,
+    description: desc || undefined,
+    coverImageUrl: img || exhibitions[0]?.coverImageUrl || exhibitions[0]?.artworks[0]?.imageUrl,
+    source: 'web',
+    exhibitions,
+    scrapedAt: '',
+  };
 
-function findGalleryInCityCache(galleryId: string): Gallery | null {
-  const cacheDir = process.env.CACHE_DIR || '/tmp/artbycity-cache';
-  const citiesDir = path.join(cacheDir, 'cities');
-  if (!fs.existsSync(citiesDir)) return null;
-
-  for (const dir of fs.readdirSync(citiesDir)) {
-    const file = path.join(citiesDir, dir, 'galleries.json');
-    if (!fs.existsSync(file)) continue;
-    try {
-      const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      const found = (data.galleries as Gallery[])?.find(g => g.id === galleryId);
-      if (found) return found;
-    } catch { /* skip */ }
-  }
-  return null;
-}
-
-export default async function GalleryPage({ params }: Props) {
-  const gallery = await getGallery(params.galleryId);
-  if (!gallery) notFound();
-
-  const allArtworks = gallery.exhibitions.flatMap(e => e.artworks);
+  const allArtworks = exhibitions.flatMap(e => e.artworks);
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-zinc-400 mb-6">
         <Link href="/" className="hover:text-zinc-700 transition-colors">Home</Link>
+        {city && (
+          <>
+            <span>/</span>
+            <Link
+              href={`/city/${city.toLowerCase().replace(/\s+/g, '-')}?city=${encodeURIComponent(city)}&country=${encodeURIComponent(country)}`}
+              className="hover:text-zinc-700 transition-colors"
+            >
+              {city}
+            </Link>
+          </>
+        )}
         <span>/</span>
-        <Link
-          href={`/city/${gallery.city.toLowerCase().replace(/\s+/g, '-')}?city=${encodeURIComponent(gallery.city)}&country=${encodeURIComponent(gallery.country)}`}
-          className="hover:text-zinc-700 transition-colors"
-        >
-          {gallery.city}
-        </Link>
-        <span>/</span>
-        <span className="text-zinc-700 truncate max-w-[200px]">{gallery.name}</span>
+        <span className="text-zinc-700 truncate max-w-[200px]">{name}</span>
       </div>
 
-      {/* Gallery profile header */}
       <GalleryProfile gallery={gallery} />
 
-      {/* All artworks masonry */}
       {allArtworks.length > 0 && (
         <section className="mt-8">
           <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-3">Artworks</h2>
@@ -84,17 +110,26 @@ export default async function GalleryPage({ params }: Props) {
         </section>
       )}
 
-      {/* Exhibitions */}
       <section className="mt-8">
         <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-4">Exhibitions</h2>
-        {gallery.exhibitions.length > 0 ? (
-          <ExhibitionList exhibitions={gallery.exhibitions} />
+        {loading ? (
+          <div className="space-y-4">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="border border-zinc-100 rounded-xl p-4 space-y-2">
+                <div className="h-3 bg-zinc-100 rounded animate-pulse w-1/4" />
+                <div className="h-4 bg-zinc-100 rounded animate-pulse w-2/3" />
+                <div className="h-3 bg-zinc-100 rounded animate-pulse w-1/2" />
+              </div>
+            ))}
+          </div>
+        ) : exhibitions.length > 0 ? (
+          <ExhibitionList exhibitions={exhibitions} />
         ) : (
           <div className="text-center py-12 border border-zinc-100 rounded-xl">
-            <p className="text-zinc-400 text-sm">Exhibition data is being loaded...</p>
-            {gallery.website && (
+            <p className="text-zinc-400 text-sm">No exhibition details found on the gallery&apos;s site.</p>
+            {website && (
               <a
-                href={gallery.website}
+                href={website}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-3 inline-block text-sm text-zinc-600 underline"
@@ -109,8 +144,17 @@ export default async function GalleryPage({ params }: Props) {
   );
 }
 
-export function generateMetadata({ params }: Props) {
-  return {
-    title: `Gallery — ArtByCity`,
-  };
+function PageSkeleton() {
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="h-4 bg-zinc-100 rounded animate-pulse w-48 mb-6" />
+      <div className="flex items-center gap-6 pb-6">
+        <div className="w-20 h-20 rounded-full bg-zinc-100 animate-pulse" />
+        <div className="space-y-2">
+          <div className="h-5 bg-zinc-100 rounded animate-pulse w-52" />
+          <div className="h-3.5 bg-zinc-100 rounded animate-pulse w-32" />
+        </div>
+      </div>
+    </div>
+  );
 }

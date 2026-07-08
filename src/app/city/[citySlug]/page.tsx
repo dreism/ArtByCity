@@ -1,5 +1,3 @@
-import { readCache, isCacheValid, TTL } from '@/lib/cache/fileCache';
-import { Gallery } from '@/types/gallery';
 import { CityClientWrapper } from '@/components/layout/CityClientWrapper';
 import Link from 'next/link';
 
@@ -9,16 +7,9 @@ interface Props {
 }
 
 export default function CityPage({ params, searchParams }: Props) {
-  const { citySlug } = params;
-  const city = searchParams.city || citySlug.split('-').slice(1).join(' ');
+  const city = searchParams.city || params.citySlug.split('-').slice(1).join(' ');
   const country = searchParams.country || '';
   const countryCode = searchParams.code || '';
-
-  const cacheKey = `cities/${citySlug}/galleries`;
-  const isValid = isCacheValid(cacheKey, TTL.GALLERIES);
-  const cached = isValid ? readCache<{ galleries: Gallery[] }>(cacheKey) : null;
-  const galleries = cached?.galleries || [];
-  const needsDiscovery = !isValid || galleries.length === 0;
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -34,18 +25,9 @@ export default function CityPage({ params, searchParams }: Props) {
         {country && (
           <p className="text-zinc-500 mt-1">{country}</p>
         )}
-        {galleries.length > 0 && (
-          <p className="text-zinc-400 text-sm mt-2">{galleries.length} galleries found</p>
-        )}
       </div>
 
-      <CityClientWrapper
-        initialGalleries={galleries}
-        needsDiscovery={needsDiscovery}
-        city={city}
-        country={country}
-        countryCode={countryCode}
-      />
+      <CityClientWrapper city={city} country={country} countryCode={countryCode} />
     </div>
   );
 }

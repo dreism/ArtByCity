@@ -6,6 +6,7 @@ import { GalleryCard } from './GalleryCard';
 
 interface Props {
   galleries: Gallery[];
+  enrichingIds?: Set<string>;
 }
 
 const container = {
@@ -23,15 +24,8 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.35 } },
 };
 
-export function GalleryGrid({ galleries }: Props) {
-  if (galleries.length === 0) {
-    return (
-      <div className="text-center py-20">
-        <p className="text-zinc-400 text-lg">No galleries found yet.</p>
-        <p className="text-zinc-300 text-sm mt-1">Discovery is in progress...</p>
-      </div>
-    );
-  }
+export function GalleryGrid({ galleries, enrichingIds }: Props) {
+  if (galleries.length === 0) return null;
 
   return (
     <motion.div
@@ -42,7 +36,7 @@ export function GalleryGrid({ galleries }: Props) {
     >
       {galleries.map((gallery) => (
         <motion.div key={gallery.id} variants={item}>
-          <GalleryCard gallery={gallery} />
+          <GalleryCard gallery={gallery} enriching={enrichingIds?.has(gallery.id)} />
         </motion.div>
       ))}
     </motion.div>
